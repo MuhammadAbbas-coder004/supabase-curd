@@ -11,8 +11,45 @@ const CreatePitch = () => {
     description: '',
     funding_goal: '',
     category: '',
-    video_url: ''
+    video_url: '',
+    duration: ''
   });
+
+  useEffect(() => {
+    const detectDuration = async () => {
+      if (!formData.video_url) return;
+
+      // Vimeo
+      if (formData.video_url.includes('vimeo.com')) {
+        try {
+          const response = await fetch(`https://vimeo.com/api/oembed.json?url=${encodeURIComponent(formData.video_url)}`);
+          const data = await response.json();
+          if (data && data.duration) {
+            const mins = Math.floor(data.duration / 60);
+            const secs = (data.duration % 60).toString().padStart(2, '0');
+            setFormData(prev => ({ ...prev, duration: `${mins}:${secs}` }));
+          }
+        } catch (err) {
+          console.error("Vimeo detect error:", err);
+        }
+      } 
+      // Direct
+      else if (!formData.video_url.includes('youtube') && !formData.video_url.includes('youtu.be')) {
+        const v = document.createElement('video');
+        v.preload = "metadata";
+        v.src = formData.video_url;
+        v.onloadedmetadata = () => {
+          const mins = Math.floor(v.duration / 60);
+          const secs = Math.floor(v.duration % 60).toString().padStart(2, '0');
+          setFormData(prev => ({ ...prev, duration: `${mins}:${secs}` }));
+          v.remove();
+        };
+        v.onerror = () => v.remove();
+      }
+    };
+
+    detectDuration();
+  }, [formData.video_url]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -30,7 +67,8 @@ const CreatePitch = () => {
             description: formData.description,
             funding_goal: parseFloat(formData.funding_goal),
             category: formData.category,
-            video_url: formData.video_url
+            video_url: formData.video_url,
+            duration: formData.duration
           }
         ]);
 
@@ -127,6 +165,18 @@ const CreatePitch = () => {
                 />
               </div>
               <p className="text-xs text-slate-500 mt-2">Optional: Add a YouTube or Vimeo link to your pitch deck.</p>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Video Duration</label>
+              <input
+                type="text"
+                value={formData.duration}
+                onChange={(e) => setFormData({...formData, duration: e.target.value})}
+                className="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 focus:ring-2 focus:ring-indigo-500 dark:bg-slate-900 dark:text-white transition-shadow"
+                placeholder="e.g. 5:20"
+              />
+              <p className="text-xs text-slate-500 mt-2">Format: MM:SS (e.g., 2:30)</p>
             </div>
           </div>
 

@@ -30,6 +30,7 @@ CREATE TABLE public.profiles (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID REFERENCES public.users(id) ON DELETE CASCADE UNIQUE,
   name TEXT NOT NULL,
+  email TEXT NOT NULL,
   bio TEXT,
   business_details TEXT,
   investment_interests TEXT,
@@ -63,6 +64,8 @@ CREATE TABLE public.pitches (
   funding_goal NUMERIC,
   category TEXT,
   video_url TEXT,
+  duration TEXT,
+  views_count INTEGER DEFAULT 0,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 

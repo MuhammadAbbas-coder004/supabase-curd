@@ -45,12 +45,19 @@ const Register = () => {
          return;
       }
 
-      // Create profile record
+      // Create profile record (Attempt with email, fallback if column missing)
       const { error: profileError } = await supabase.from('profiles').insert([
-        { user_id: authData.user.id, name: formData.name }
+        { user_id: authData.user.id, name: formData.name, email: formData.email }
       ]);
-
-      if (profileError) {
+      
+      // Fallback if 'email' column doesn't exist
+      if (profileError && profileError.message.includes('column "email" of relation "profiles" does not exist')) {
+        const { error: fallbackError } = await supabase.from('profiles').insert([
+          { user_id: authData.user.id, name: formData.name }
+        ]);
+        if (fallbackError) setError(fallbackError.message);
+        else navigate('/dashboard');
+      } else if (profileError) {
         setError(profileError.message);
       } else {
         navigate('/dashboard');

@@ -10,6 +10,7 @@ const Dashboard = () => {
   const [loading, setLoading] = useState(true);
   const [metrics, setMetrics] = useState({ views: 0, interests: 0, pitches: 0 });
   const [myPitches, setMyPitches] = useState([]);
+  const [recentActivity, setRecentActivity] = useState([]);
 
   useEffect(() => {
     fetchProfileData();
@@ -43,12 +44,38 @@ const Dashboard = () => {
           .eq('owner_id', user.id);
           
         setMyPitches(pitches || []);
-        // Example mock metrics
+        
+        // Calculate real total views
+        const totalViews = (pitches || []).reduce((acc, p) => acc + (p.views_count || 0), 0);
+        
+        // Fetch real interests
+        const pitchIds = (pitches || []).map(p => p.id);
+        let interestCount = 0;
+        let activities = [];
+
+        if (pitchIds.length > 0) {
+          const { data: interestData, count } = await supabase
+            .from('interests')
+            .select('*, profiles:investor_id(name)', { count: 'exact' })
+            .in('pitch_id', pitchIds)
+            .order('created_at', { ascending: false });
+          
+          interestCount = count || 0;
+          activities = (interestData || []).slice(0, 3).map(item => ({
+            id: item.id,
+            type: 'interest',
+            title: 'New investor interest',
+            desc: `${item.profiles?.name || 'An investor'} showed interest in your pitch.`,
+            time: item.created_at
+          }));
+        }
+
         setMetrics({
-          views: Math.floor(Math.random() * 500) + 100,
-          interests: Math.floor(Math.random() * 50) + 5,
+          views: totalViews,
+          interests: interestCount,
           pitches: pitches?.length || 0,
         });
+        setRecentActivity(activities);
       }
       
     } catch (error) {
@@ -58,13 +85,76 @@ const Dashboard = () => {
     }
   };
 
-  const chartData = [
-    { name: 'Jan', views: 400 },
-    { name: 'Feb', views: 300 },
-    { name: 'Mar', views: 550 },
-    { name: 'Apr', views: 480 },
-    { name: 'May', views: 600 },
-  ];
+  // REAL-TIME SUBSCRIPTION
+  useEffect(() => {
+    let channel;
+
+    const setupRealtime = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      channel = supabase
+        .channel('dashboard-updates')
+        .on(
+          'postgres_changes',
+          { event: 'UPDATE', schema: 'public', table: 'pitches' },
+          (payload) => {
+            // Filter by owner_id in JS for better reliability
+            if (payload.new.owner_id === user.id) {
+              setMyPitches(prev => prev.map(p => p.id === payload.new.id ? { ...p, ...payload.new } : p));
+              // Update metrics
+              setMetrics(prev => ({
+                ...prev,
+                views: (prev.views - (payload.old.views_count || 0)) + (payload.new.views_count || 0)
+              }));
+            }
+          }
+        )
+        .on(
+          'postgres_changes',
+          { event: 'INSERT', schema: 'public', table: 'interests' },
+          async (payload) => {
+            // Check if it belongs to one of our pitches (a bit manual here as filter can only be simple)
+            const { data: belongs } = await supabase
+              .from('pitches')
+              .select('id')
+              .eq('id', payload.new.pitch_id)
+              .eq('owner_id', user.id)
+              .single();
+
+            if (belongs) {
+              setMetrics(prev => ({ ...prev, interests: prev.interests + 1 }));
+              // Extract investor name for activity
+              const { data: profile } = await supabase.from('profiles').select('name').eq('user_id', payload.new.investor_id).single();
+              const newActivity = {
+                id: payload.new.id,
+                type: 'interest',
+                title: 'New investor interest',
+                desc: `${profile?.name || 'An investor'} showed interest in your pitch.`,
+                time: payload.new.created_at
+              };
+              setRecentActivity(prev => [newActivity, ...prev].slice(0, 3));
+            }
+          }
+        )
+        .subscribe();
+    };
+
+    setupRealtime();
+
+    return () => {
+      if (channel) supabase.removeChannel(channel);
+    };
+  }, []);
+
+  const calculateLevel = (views) => {
+    return Math.floor(views / 50) + 1; // 1 Level for every 50 views
+  };
+
+  const chartData = myPitches.map(p => ({
+    name: p.title.length > 8 ? p.title.substring(0, 8) + '...' : p.title,
+    views: p.views_count || 0
+  })).slice(0, 5); // Show top 5 pitches
 
   if (loading) {
     return (
@@ -78,7 +168,14 @@ const Dashboard = () => {
     <div className="space-y-8 animate-fade-in-up">
       <div className="flex justify-between items-center bg-white dark:bg-slate-800 p-8 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-700/50">
         <div>
-          <h1 className="text-3xl font-bold text-slate-900 dark:text-white mb-2">Welcome back, {profile?.name || 'User'}!</h1>
+          <div className="flex items-center space-x-3 mb-2">
+            <h1 className="text-3xl font-bold text-slate-900 dark:text-white">Welcome back, {profile?.name || 'User'}!</h1>
+            {userRole === 'product_owner' && (
+              <span className="px-3 py-1 bg-indigo-600 text-white text-xs font-bold rounded-full shadow-lg shadow-indigo-600/20 animate-pulse">
+                LEVEL {calculateLevel(metrics.views)}
+              </span>
+            )}
+          </div>
           <p className="text-slate-500 dark:text-slate-400">Here's what's happening with your account today.</p>
         </div>
         {userRole === 'product_owner' && (
@@ -149,18 +246,22 @@ const Dashboard = () => {
         <div className="bg-white dark:bg-slate-800 p-6 md:p-8 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-700/50">
           <h3 className="text-xl font-bold mb-6 text-slate-900 dark:text-white">Recent Activity</h3>
           <div className="space-y-6">
-            {[1, 2, 3].map((i) => (
-              <div key={i} className="flex items-start space-x-4">
+            {recentActivity.length > 0 ? recentActivity.map((activity) => (
+              <div key={activity.id} className="flex items-start space-x-4">
                 <div className="h-10 w-10 rounded-full bg-slate-100 dark:bg-slate-700 flex items-center justify-center shrink-0">
                   <Users className="w-5 h-5 text-slate-500" />
                 </div>
                 <div>
-                  <p className="text-sm text-slate-900 dark:text-white font-medium">New investor interest</p>
-                  <p className="text-xs text-slate-500 mt-1">Acme Corp viewed your pitch.</p>
-                  <p className="text-xs text-slate-400 mt-1">{i * 2} hours ago</p>
+                  <p className="text-sm text-slate-900 dark:text-white font-medium">{activity.title}</p>
+                  <p className="text-xs text-slate-500 mt-1">{activity.desc}</p>
+                  <p className="text-xs text-slate-400 mt-1">
+                    {new Date(activity.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </p>
                 </div>
               </div>
-            ))}
+            )) : (
+              <p className="text-sm text-slate-500 text-center py-10 italic">No recent activity yet.</p>
+            )}
           </div>
         </div>
       </div>

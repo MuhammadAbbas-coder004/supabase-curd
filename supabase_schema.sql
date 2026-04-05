@@ -141,3 +141,24 @@ CREATE POLICY "Pitch owners can view their analytics"
 ON public.pitch_views FOR SELECT USING (
   auth.uid() IN (SELECT owner_id FROM public.pitches WHERE id = pitch_id)
 );
+
+-- ==========================================
+-- ANALYTICS & VIEW INCREMENT RPC
+-- ==========================================
+
+-- Atomic Increment Function (Views barhane ke liye)
+CREATE OR REPLACE FUNCTION public.increment_pitch_views(target_pitch_id UUID)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+BEGIN
+  UPDATE public.pitches
+  SET views_count = COALESCE(views_count, 0) + 1
+  WHERE id = target_pitch_id;
+END;
+$$;
+
+-- Performance Indexes for Analytics
+CREATE INDEX IF NOT EXISTS idx_pitch_views_pitch_id ON public.pitch_views(pitch_id);
+CREATE INDEX IF NOT EXISTS idx_pitch_views_viewed_at ON public.pitch_views(viewed_at);

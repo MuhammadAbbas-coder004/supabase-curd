@@ -21,6 +21,15 @@ const Pitches = () => {
   useEffect(() => {
     fetchPitches();
     getCurrentUser();
+    
+    // BACKUP POLLING: Every 30 seconds, manually refresh data 
+    // in case Supabase Realtime is disabled or failing.
+    const pollInterval = setInterval(() => {
+      console.log("Pitches: Polling for fresh data...");
+      fetchPitches();
+    }, 30000);
+
+    return () => clearInterval(pollInterval);
   }, []);
 
   useEffect(() => {
@@ -70,23 +79,28 @@ const Pitches = () => {
       if (!pitch) return;
       const newCount = (pitch.views_count || 0) + 1;
       
-      // Update local state for immediate feedback
+      console.log("Pitches: Incrementing views locally for pitch", pitchId);
       setPitches(prev => prev.map(p => p.id === pitchId ? { ...p, views_count: newCount } : p));
       
-      // Call the RPC function (Safe increment for all users - bypasses RLS)
       const { error: rpcError } = await supabase.rpc('increment_pitch_views', { target_pitch_id: pitchId });
       
       if (rpcError) {
-          console.warn("RPC failed, trying direct update:", rpcError);
-          // Fallback to direct update if RPC fails
-          await supabase.from('pitches').update({ views_count: newCount }).eq('id', pitchId);
+          console.warn("Pitches: RPC failed, trying Direct Update fallback:", rpcError.message);
+          const { error: updateError } = await supabase.from('pitches').update({ views_count: newCount }).eq('id', pitchId);
+          if (updateError) console.warn("Pitches: Direct update also failed (expected if not owner).", updateError.message);
       }
       
-      // LOG THE VIEW IN THE ANALYTICS TABLE
-      await supabase.from('pitch_views').insert([{ 
+      console.log("Pitches: Logging view in pitch_views table...");
+      const { error: insertError } = await supabase.from('pitch_views').insert([{ 
         pitch_id: pitchId, 
         viewer_id: currentUserId || null 
       }]);
+      
+      if (insertError) {
+        console.error("Pitches: Failed to insert into pitch_views!", insertError.message);
+      } else {
+        console.log("Pitches: Successfully logged view in pitch_views.");
+      }
     } catch (err) {
       console.error("View increment error:", err);
     }

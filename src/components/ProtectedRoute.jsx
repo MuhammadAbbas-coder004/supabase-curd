@@ -60,8 +60,9 @@ const ProtectedRoute = ({ children, allowedRoles = [] }) => {
   }
 
   // Logged in, but route restricted by roles
-  if (allowedRoles.length > 0 && !allowedRoles.includes(userRole)) {
+  if (allowedRoles.length > 0 && userRole && !allowedRoles.includes(userRole)) {
     // Redirect to a general dashboard or unauthorized page
+    console.warn(`ProtectedRoute: User role "${userRole}" not allowed for this route:`, allowedRoles);
     return <Navigate to="/dashboard" replace />;
   }
 

@@ -7,18 +7,32 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 const Dashboard = () => {
   const [userRole, setUserRole] = useState(null);
   const [profile, setProfile] = useState(null);
+  const [session, setSession] = useState(null);
   const [loading, setLoading] = useState(true);
   const [metrics, setMetrics] = useState({ views: 0, interests: 0, pitches: 0 });
   const [myPitches, setMyPitches] = useState([]);
+  const [chartData, setChartData] = useState([]);
   const [recentActivity, setRecentActivity] = useState([]);
 
   useEffect(() => {
     fetchProfileData();
+
+    // BACKUP POLLING: Refresh data every 10 seconds 
+    // This is a safety net if Supabase Realtime isn't enabled.
+    const interval = setInterval(() => {
+      console.log("Dashboard: Backup Polling...");
+      fetchProfileData();
+    }, 10000);
+
+    return () => clearInterval(interval);
   }, []);
 
   const fetchProfileData = async () => {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: { session: authSession } } = await supabase.auth.getSession();
+      if (!authSession) return;
+      const user = authSession.user;
+      setSession(authSession);
       
       const { data: userData } = await supabase
         .from('users')
@@ -70,12 +84,43 @@ const Dashboard = () => {
           }));
         }
 
-        setMetrics({
-          views: totalViews,
-          interests: interestCount,
-          pitches: pitches?.length || 0,
-        });
-        setRecentActivity(activities);
+        // Fetch View History for Graph & Reliable Total Count
+        if (pitchIds.length > 0) {
+          const { data: viewHistory, count: totalHistoryCount } = await supabase
+            .from('pitch_views')
+            .select('viewed_at, pitches(title)', { count: 'exact' })
+            .in('pitch_id', pitchIds)
+            .order('viewed_at', { ascending: false });
+          
+          const reliableViews = Math.max(totalViews, totalHistoryCount || 0);
+
+          setMetrics(prev => ({
+            ...prev,
+            views: reliableViews,
+            interests: interestCount,
+            pitches: pitches?.length || 0,
+          }));
+
+          // Combine Interests and Views for Activity Feed
+          const viewActivities = (viewHistory || []).slice(0, 5).map(v => ({
+            id: `view-${v.viewed_at}`,
+            type: 'view',
+            title: 'Pitch Viewed',
+            desc: `Someone just watched your pitch "${v.pitches?.title || 'Startup'}"`,
+            time: v.viewed_at
+          }));
+
+          const combinedActivities = [...activities, ...viewActivities]
+            .sort((a, b) => new Date(b.time) - new Date(a.time))
+            .slice(0, 5);
+
+          setRecentActivity(combinedActivities);
+          
+          const last7DaysHistory = (viewHistory || []).filter(v => 
+             new Date(v.viewed_at) >= new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
+          );
+          processChartData(last7DaysHistory);
+        }
       }
       
     } catch (error) {
@@ -85,13 +130,40 @@ const Dashboard = () => {
     }
   };
 
+  const processChartData = (viewHistory) => {
+    const last7Days = [...Array(7)].map((_, i) => {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      return d.toISOString().split('T')[0];
+    }).reverse();
+
+    const counts = viewHistory.reduce((acc, v) => {
+      const date = v.viewed_at.split('T')[0];
+      acc[date] = (acc[date] || 0) + 1;
+      return acc;
+    }, {});
+
+    const formattedData = last7Days.map(date => ({
+      date: new Date(date).toLocaleDateString('en-US', { weekday: 'short' }),
+      views: counts[date] || 0
+    }));
+
+    setChartData(formattedData);
+  };
+
   // REAL-TIME SUBSCRIPTION
   useEffect(() => {
     let channel;
 
     const setupRealtime = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
+      const { data: { session: authSession } } = await supabase.auth.getSession();
+      if (!authSession) {
+        console.warn("Dashboard: No user authenticated for realtime.");
+        return;
+      }
+      const user = authSession.user;
+      
+      console.log("Dashboard: Setting up realtime for user", user.id);
 
       channel = supabase
         .channel('dashboard-updates')
@@ -99,15 +171,53 @@ const Dashboard = () => {
           'postgres_changes',
           { event: 'UPDATE', schema: 'public', table: 'pitches' },
           (payload) => {
+            console.log("Dashboard: Received pitch update!", payload);
             // Filter by owner_id in JS for better reliability
             if (payload.new.owner_id === user.id) {
-              setMyPitches(prev => prev.map(p => p.id === payload.new.id ? { ...p, ...payload.new } : p));
-              // Update metrics
-              setMetrics(prev => ({
-                ...prev,
-                views: (prev.views - (payload.old.views_count || 0)) + (payload.new.views_count || 0)
-              }));
+              setMyPitches(prev => {
+                const updated = prev.map(p => p.id === payload.new.id ? { ...p, ...payload.new } : p);
+                
+                // Recalculate total views from updated pitches array
+                const newTotalViews = updated.reduce((acc, p) => acc + (p.views_count || 0), 0);
+                console.log("Dashboard: New Total Views", newTotalViews);
+                setMetrics(m => ({ ...m, views: newTotalViews }));
+                
+                return updated;
+              });
             }
+          }
+        )
+        .on(
+          'postgres_changes',
+          { event: 'INSERT', schema: 'public', table: 'pitch_views' },
+          async (payload) => {
+             console.log("Dashboard: Received new view entry!", payload);
+             // Check if it's one of our pitches
+              setMyPitches(prev => {
+                const pitchObj = prev.find(p => p.id === payload.new.pitch_id);
+                if (pitchObj) {
+                  console.log("Dashboard: Incrementing total views (+1)");
+                  setMetrics(m => ({ ...m, views: m.views + 1 }));
+                  
+                  // Add to Activity Feed
+                  const newActivity = {
+                    id: `view-${Date.now()}`,
+                    type: 'view',
+                    title: 'Pitch Viewed',
+                    desc: `Someone just watched your pitch "${pitchObj.title}"`,
+                    time: new Date().toISOString()
+                  };
+                  setRecentActivity(prevAct => [newActivity, ...prevAct].slice(0, 5));
+
+                  // Update Graph
+                  const date = payload.new.viewed_at.split('T')[0];
+                  const dayName = new Date(date).toLocaleDateString('en-US', { weekday: 'short' });
+                  setChartData(prevData => prevData.map(d => 
+                    d.date === dayName ? { ...d, views: d.views + 1 } : d
+                  ));
+                }
+                return prev;
+              });
           }
         )
         .on(
@@ -150,11 +260,6 @@ const Dashboard = () => {
   const calculateLevel = (views) => {
     return Math.floor(views / 50) + 1; // 1 Level for every 50 views
   };
-
-  const chartData = myPitches.map(p => ({
-    name: p.title.length > 8 ? p.title.substring(0, 8) + '...' : p.title,
-    views: p.views_count || 0
-  })).slice(0, 5); // Show top 5 pitches
 
   if (loading) {
     return (
@@ -229,15 +334,41 @@ const Dashboard = () => {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         <div className="lg:col-span-2 bg-white dark:bg-slate-800 p-6 md:p-8 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-700/50">
-          <h3 className="text-xl font-bold mb-6 text-slate-900 dark:text-white">Performance Overview</h3>
+          <div className="flex justify-between items-center mb-6">
+            <h3 className="text-xl font-bold text-slate-900 dark:text-white">Growth Analytics</h3>
+            <span className="text-sm font-medium text-indigo-600 bg-indigo-50 dark:bg-indigo-900/20 px-3 py-1 rounded-full">Last 7 Days</span>
+          </div>
           <div className="h-72 w-full">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={chartData}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#334155" opacity={0.2} />
-                <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill: '#64748b'}} />
-                <YAxis axisLine={false} tickLine={false} tick={{fill: '#64748b'}} />
-                <Tooltip cursor={{fill: 'rgba(99, 102, 241, 0.1)'}} contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)'}} />
-                <Bar dataKey="views" fill="#4f46e5" radius={[6, 6, 0, 0]} />
+                <defs>
+                  <linearGradient id="colorViews" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#4f46e5" stopOpacity={0.8}/>
+                    <stop offset="95%" stopColor="#4f46e5" stopOpacity={0.1}/>
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#334155" opacity={0.1} />
+                <XAxis 
+                  dataKey="date" 
+                  axisLine={false} 
+                  tickLine={false} 
+                  tick={{fill: '#64748b', fontSize: 12}} 
+                />
+                <YAxis 
+                  axisLine={false} 
+                  tickLine={false} 
+                  tick={{fill: '#64748b', fontSize: 12}} 
+                />
+                <Tooltip 
+                  cursor={{fill: 'rgba(99, 102, 241, 0.05)'}} 
+                  contentStyle={{borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)', backgroundColor: '#fff', color: '#1e293b'}} 
+                />
+                <Bar 
+                  dataKey="views" 
+                  fill="url(#colorViews)" 
+                  radius={[6, 6, 0, 0]} 
+                  animationDuration={1500}
+                />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -283,6 +414,7 @@ const Dashboard = () => {
            </div>
         </div>
       )}
+
     </div>
   );
 };

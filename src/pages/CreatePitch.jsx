@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { useNavigate } from 'react-router-dom';
 import { UploadCloud, CheckCircle, Loader2 } from 'lucide-react';
@@ -67,8 +67,7 @@ const CreatePitch = () => {
             description: formData.description,
             funding_goal: parseFloat(formData.funding_goal),
             category: formData.category,
-            video_url: formData.video_url,
-            duration: formData.duration
+            video_url: formData.video_url
           }
         ]);
 
@@ -167,17 +166,6 @@ const CreatePitch = () => {
               <p className="text-xs text-slate-500 mt-2">Optional: Add a YouTube or Vimeo link to your pitch deck.</p>
             </div>
 
-            <div>
-              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Video Duration</label>
-              <input
-                type="text"
-                value={formData.duration}
-                onChange={(e) => setFormData({...formData, duration: e.target.value})}
-                className="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 focus:ring-2 focus:ring-indigo-500 dark:bg-slate-900 dark:text-white transition-shadow"
-                placeholder="e.g. 5:20"
-              />
-              <p className="text-xs text-slate-500 mt-2">Format: MM:SS (e.g., 2:30)</p>
-            </div>
           </div>
 
           <div className="pt-6">

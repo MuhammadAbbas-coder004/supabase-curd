@@ -24,7 +24,7 @@ function App() {
             {/* Protected Routes */}
             <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
             <Route path="/create-pitch" element={
-              <ProtectedRoute allowedRoles={['product_owner']}>
+              <ProtectedRoute>
                 <CreatePitch />
               </ProtectedRoute>
             } />

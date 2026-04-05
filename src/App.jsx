@@ -7,6 +7,7 @@ import Register from './pages/Register';
 import Dashboard from './pages/Dashboard';
 import Pitches from './pages/Pitches';
 import CreatePitch from './pages/CreatePitch';
+import Messages from './pages/Messages';
 import ProtectedRoute from './components/ProtectedRoute';
 
 function App() {
@@ -23,6 +24,7 @@ function App() {
             
             {/* Protected Routes */}
             <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+            <Route path="/messages" element={<ProtectedRoute><Messages /></ProtectedRoute>} />
             <Route path="/create-pitch" element={
               <ProtectedRoute>
                 <CreatePitch />

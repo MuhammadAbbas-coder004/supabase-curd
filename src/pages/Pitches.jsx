@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
-import { Search, Filter, Play, Loader2, X, Globe, DollarSign, Tag, Calendar, User, Trash2, Handshake } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { Search, Filter, Play, Loader2, X, Globe, DollarSign, Tag, Calendar, User, Trash2, Handshake, MessageSquare } from 'lucide-react';
 
 const Pitches = () => {
   const [pitches, setPitches] = useState([]);
@@ -551,12 +552,13 @@ const Pitches = () => {
                     <p className="text-sm font-semibold text-slate-700 dark:text-slate-300">{selectedPitch.profiles?.name}</p>
                     <p className="text-xs text-slate-500">{selectedPitch.profiles?.email}</p>
                   </div>
-                  <a 
-                    href={`mailto:${selectedPitch.profiles?.email}?subject=Investment Interest: ${selectedPitch.title}`}
-                    className="p-2 bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 rounded-lg hover:bg-indigo-200 transition-colors"
+                  <Link 
+                    to={`/messages?user=${selectedPitch.owner_id}`}
+                    className="p-2 bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 rounded-lg hover:bg-indigo-200 transition-colors flex items-center space-x-1"
                   >
-                    Send Email
-                  </a>
+                    <MessageSquare className="w-4 h-4" />
+                    <span>Message</span>
+                  </Link>
                 </div>
               </div>
 
@@ -602,12 +604,13 @@ const Pitches = () => {
                   <Play className="w-5 h-5 fill-current" />
                   <span>Watch Pitch</span>
                 </button>
-                <a 
-                  href={`mailto:${selectedPitch.profiles?.email}?subject=Investment Interest: ${selectedPitch.title}`}
-                  className="flex-1 py-4 bg-slate-100 dark:bg-slate-700 text-slate-900 dark:text-white rounded-xl font-bold hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors text-center"
+                <Link 
+                  to={`/messages?user=${selectedPitch.owner_id}`}
+                  className="flex-1 py-4 bg-slate-100 dark:bg-slate-700 text-slate-900 dark:text-white rounded-xl font-bold hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors flex items-center justify-center space-x-2"
                 >
-                  Contact Founder
-                </a>
+                  <MessageSquare className="w-5 h-5" />
+                  <span>Message Founder</span>
+                </Link>
               </div>
             </div>
           </div>

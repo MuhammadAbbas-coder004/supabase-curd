@@ -43,6 +43,7 @@ const Navbar = () => {
             <Link to="/pitches" className="text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 font-medium transition-colors">Pitches</Link>
             {session ? (
               <>
+                <Link to="/messages" className="text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 font-medium transition-colors">Messages</Link>
                 <Link to="/dashboard" className="text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 font-medium transition-colors">Dashboard</Link>
                 <div className="flex items-center space-x-4">
                   <button onClick={handleLogout} className="flex items-center space-x-2 px-4 py-2 rounded-full text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 font-medium transition-colors">
@@ -75,7 +76,8 @@ const Navbar = () => {
             <Link to="/pitches" className="block px-3 py-2 text-slate-600 dark:text-slate-300 hover:text-indigo-600 font-medium">Pitches</Link>
             {session ? (
               <>
-                <Link to="/dashboard" className="block px-3 py-2 text-slate-600 dark:text-slate-300 hover:text-indigo-600 font-medium">Dashboard</Link>
+                <Link to="/messages" onClick={() => setIsMobileMenuOpen(false)} className="block px-3 py-2 text-slate-600 dark:text-slate-300 hover:text-indigo-600 font-medium">Messages</Link>
+                <Link to="/dashboard" onClick={() => setIsMobileMenuOpen(false)} className="block px-3 py-2 text-slate-600 dark:text-slate-300 hover:text-indigo-600 font-medium">Dashboard</Link>
                 <button onClick={handleLogout} className="block w-full text-left px-3 py-2 text-red-600 font-medium">Logout</button>
               </>
             ) : (

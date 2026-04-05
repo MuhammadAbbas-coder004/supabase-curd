@@ -177,6 +177,38 @@ const Messages = () => {
     }, 100);
   };
 
+  // Fallback polling mechanism in case Supabase Realtime is disabled on the table
+  useEffect(() => {
+    if (!session) return;
+
+    const pollInterval = setInterval(() => {
+      // 1. Poll conversations list
+      fetchConversations(session.user.id);
+      
+      // 2. Poll active chat messages
+      if (activeChatUserId) {
+        supabase
+          .from('direct_messages')
+          .select('*')
+          .or(`and(sender_id.eq.${session.user.id},receiver_id.eq.${activeChatUserId}),and(sender_id.eq.${activeChatUserId},receiver_id.eq.${session.user.id})`)
+          .order('created_at', { ascending: true })
+          .then(({ data, error }) => {
+            if (!error && data) {
+              setMessages(prev => {
+                if (prev.length !== data.length) {
+                  setTimeout(scrollToBottom, 50);
+                  return data;
+                }
+                return prev;
+              });
+            }
+          });
+      }
+    }, 5000);
+
+    return () => clearInterval(pollInterval);
+  }, [session, activeChatUserId]);
+
   const handleSendMessage = async (e) => {
     e.preventDefault();
     if (!newMessage.trim() || !activeChatUserId || !session) return;
@@ -184,20 +216,32 @@ const Messages = () => {
     const messageText = newMessage.trim();
     setNewMessage(''); // clear input field
     
-    // We let Supabase Realtime handle adding the sent message to the UI to prevent duplicates.
-    const { error } = await supabase
+    // Optimistic insert + selection to update UI immediately
+    const { data: insertedData, error } = await supabase
       .from('direct_messages')
       .insert([{
         sender_id: session.user.id,
         receiver_id: activeChatUserId,
         content: messageText
-      }]);
+      }])
+      .select();
 
     if (error) {
       console.error("Error sending message:", error);
       alert("Failed to send message: " + error.message);
       // Restore input if it failed
       setNewMessage(messageText);
+    } else if (insertedData && insertedData.length > 0) {
+      // Optimistically add to UI in case realtime is disabled or slow
+      setMessages(prev => {
+        const exists = prev.find(m => m.id === insertedData[0].id);
+        if (exists) return prev;
+        return [...prev, insertedData[0]];
+      });
+      scrollToBottom();
+      
+      // Also ensure conversation exists
+      ensureConversationTargetExists(activeChatUserId);
     }
   };
 

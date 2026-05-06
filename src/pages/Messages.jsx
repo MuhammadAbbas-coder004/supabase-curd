@@ -259,7 +259,7 @@ const Messages = () => {
   }
 
   return (
-    <div className="flex h-[calc(100vh-8rem)] bg-white dark:bg-slate-800 rounded-3xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden animate-fade-in-up">
+    <div className="flex h-full bg-white dark:bg-slate-800 rounded-3xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden animate-fade-in-up">
       
       {/* Sidebar - Conversations List */}
       <div className={`w-full md:w-1/3 flex flex-col border-r border-slate-200 dark:border-slate-700 ${activeChatUserId ? 'hidden md:flex' : 'flex'}`}>

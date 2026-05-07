@@ -56,26 +56,47 @@ const CreatePitch = () => {
     setLoading(true);
 
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      
-      const { error } = await supabase
-        .from('pitches')
-        .insert([
-          {
-            owner_id: user.id,
-            title: formData.title,
-            description: formData.description,
-            funding_goal: parseFloat(formData.funding_goal),
-            category: formData.category,
-            video_url: formData.video_url
-          }
-        ]);
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error("Please log in again to create a pitch.");
+      const user = session.user;
 
-      if (error) throw error;
+      const { data: existingPitch } = await supabase
+        .from('pitches')
+        .select('id')
+        .eq('owner_id', user.id)
+        .maybeSingle();
+
+      const pitchData = {
+        owner_id: user.id,
+        title: formData.title,
+        description: formData.description,
+        funding_goal: parseFloat(formData.funding_goal),
+        category: formData.category,
+        video_url: formData.video_url
+      };
+
+      if (existingPitch) {
+        const { error: updateError } = await supabase
+          .from('pitches')
+          .update({
+            ...pitchData,
+            created_at: new Date().toISOString()
+          })
+          .eq('id', existingPitch.id);
+
+        if (updateError) throw updateError;
+      } else {
+        const { error: insertError } = await supabase
+          .from('pitches')
+          .insert([pitchData]);
+
+        if (insertError) throw insertError;
+      }
+
       navigate('/dashboard');
     } catch (error) {
-      console.error(error);
-      alert('Error creating pitch: ' + error.message);
+      console.error("Pitch Save Error:", error);
+      alert('Error: ' + error.message);
     } finally {
       setLoading(false);
     }
@@ -152,18 +173,61 @@ const CreatePitch = () => {
             </div>
 
             <div className="md:col-span-2">
-              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Video Pitch Link</label>
-              <div className="relative">
-                <UploadCloud className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5" />
-                <input
-                  type="url"
-                  value={formData.video_url}
-                  onChange={(e) => setFormData({...formData, video_url: e.target.value})}
-                  className="w-full pl-12 pr-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 focus:ring-2 focus:ring-indigo-500 dark:bg-slate-900 dark:text-white transition-shadow"
-                  placeholder="https://youtube.com/watch?v=..."
-                />
+              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Video Pitch</label>
+              <div className="flex flex-col md:flex-row gap-4">
+                <div className="relative flex-1">
+                  <UploadCloud className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5" />
+                  <input
+                    type="url"
+                    value={formData.video_url}
+                    onChange={(e) => setFormData({...formData, video_url: e.target.value})}
+                    className="w-full pl-12 pr-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 focus:ring-2 focus:ring-indigo-500 dark:bg-slate-900 dark:text-white transition-shadow"
+                    placeholder="https://youtube.com/... or upload"
+                  />
+                </div>
+                <button
+                  type="button"
+                  className="relative px-6 py-3 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-900 dark:text-white rounded-xl font-bold transition-all flex items-center justify-center space-x-2 border border-slate-200 dark:border-slate-700 cursor-pointer"
+                >
+                  <UploadCloud className="w-5 h-5" />
+                  <span>Upload Video</span>
+                  <input 
+                    type="file" 
+                    className="absolute inset-0 opacity-0 cursor-pointer" 
+                    accept="video/*"
+                    onChange={async (e) => {
+                      const file = e.target.files[0];
+                      if (!file) return;
+                      
+                      try {
+                        setLoading(true);
+                        const fileExt = file.name.split('.').pop();
+                        const fileName = `${Math.random()}.${fileExt}`;
+                        const filePath = `${fileName}`;
+
+                        const { error: uploadError } = await supabase.storage
+                          .from('pitches')
+                          .upload(filePath, file);
+
+                        if (uploadError) throw uploadError;
+
+                        const { data: { publicUrl } } = supabase.storage
+                          .from('pitches')
+                          .getPublicUrl(filePath);
+
+                        setFormData(prev => ({ ...prev, video_url: publicUrl }));
+                        alert("Video uploaded successfully!");
+                      } catch (error) {
+                        console.error('Error uploading video:', error);
+                        alert('Upload failed: ' + error.message);
+                      } finally {
+                        setLoading(false);
+                      }
+                    }}
+                  />
+                </button>
               </div>
-              <p className="text-xs text-slate-500 mt-2">Optional: Add a YouTube or Vimeo link to your pitch deck.</p>
+              <p className="text-xs text-slate-500 mt-2">Upload your pitch video directly or paste a link from YouTube/Vimeo.</p>
             </div>
 
           </div>

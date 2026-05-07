@@ -15,7 +15,7 @@ import ProductOwnerLayout from './components/ProductOwnerLayout';
 
 function AppContent() {
   const location = useLocation();
-  const hideNavbar = ['/dashboard', '/create-pitch', '/messages', '/profile', '/history'].includes(location.pathname);
+  const hideNavbar = ['/dashboard', '/create-pitch', '/messages', '/profile', '/history', '/pitches'].includes(location.pathname);
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-50 font-sans selection:bg-indigo-500 selection:text-white">
@@ -25,12 +25,11 @@ function AppContent() {
           <Route path="/" element={<Home />} />
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
-
-          <Route path="/pitches" element={<Pitches />} />
           
           {/* Protected Routes with ProductOwnerLayout */}
           <Route element={<ProtectedRoute><ProductOwnerLayout /></ProtectedRoute>}>
             <Route path="/dashboard" element={<Dashboard />} />
+            <Route path="/pitches" element={<Pitches />} />
             <Route path="/messages" element={<Messages />} />
             <Route path="/create-pitch" element={<CreatePitch />} />
             <Route path="/profile" element={<Profile />} />

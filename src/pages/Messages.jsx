@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import { useSearchParams } from 'react-router-dom';
-import { Send, User as UserIcon, Loader2, ArrowLeft, Search, MessageSquare } from 'lucide-react';
+import { SendHorizontal, User as UserIcon, Loader2, ArrowLeft, Search, MessageSquare } from 'lucide-react';
 
 const Messages = () => {
   const [session, setSession] = useState(null);
@@ -34,8 +34,14 @@ const Messages = () => {
         .from('profiles')
         .select('*')
         .eq('user_id', authSession.user.id)
-        .single();
-      setCurrentUserProfile(profile);
+        .maybeSingle();
+
+      // Combine DB profile with Auth metadata for current user
+      const mergedProfile = {
+        ...profile,
+        avatar_url: authSession.user.user_metadata?.avatar_url || profile?.avatar_url || ''
+      };
+      setCurrentUserProfile(mergedProfile);
 
       await fetchConversations(authSession.user.id);
       
@@ -85,7 +91,7 @@ const Messages = () => {
       .or(`sender_id.eq.${currentUserId},receiver_id.eq.${currentUserId}`);
 
     if (error) {
-       console.error("Error fetching messages (Hint: Have you run the SQL script in Supabase?)", error);
+       console.error("Error fetching messages", error);
        return;
     }
 
@@ -102,7 +108,13 @@ const Messages = () => {
         .select('*')
         .in('user_id', Array.from(uniqueUserIds));
       
-      if (profiles) setConversations(profiles);
+      if (profiles) {
+        const normalized = profiles.map(p => ({
+          ...p,
+          avatar_url: p.avatar_url || p.avatarUrl || ''
+        }));
+        setConversations(normalized);
+      }
     }
   };
 
@@ -111,13 +123,23 @@ const Messages = () => {
     if (session && activeChatUserId) {
       fetchMessages(session.user.id, activeChatUserId);
       
-      const targetProf = conversations.find(p => p.user_id === activeChatUserId);
-      if (targetProf) {
-         setActiveChatProfile(targetProf);
+      const getLatestProfile = async () => {
+        const { data } = await supabase.from('profiles').select('*').eq('user_id', activeChatUserId).single();
+        if (data) {
+          // Normalize avatar_url just in case
+          const normalizedProfile = {
+            ...data,
+            avatar_url: data.avatar_url || data.avatarUrl || ''
+          };
+          setActiveChatProfile(normalizedProfile);
+        }
+      };
+
+      const existingConv = conversations.find(c => c.user_id === activeChatUserId);
+      if (existingConv) {
+        setActiveChatProfile(existingConv);
       } else {
-         fetchProfile(activeChatUserId).then(p => {
-             if (p) setActiveChatProfile(p);
-         });
+        getLatestProfile();
       }
     }
   }, [activeChatUserId, session, conversations]);
@@ -259,7 +281,7 @@ const Messages = () => {
   }
 
   return (
-    <div className="flex h-full bg-white dark:bg-slate-800 rounded-3xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden animate-fade-in-up">
+    <div className="flex min-h-[500px] lg:h-[60vh] bg-white dark:bg-slate-800 rounded-3xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden animate-fade-in-up">
       
       {/* Sidebar - Conversations List */}
       <div className={`w-full md:w-1/3 flex flex-col border-r border-slate-200 dark:border-slate-700 ${activeChatUserId ? 'hidden md:flex' : 'flex'}`}>
@@ -291,8 +313,12 @@ const Messages = () => {
                 }}
                 className={`flex items-center p-4 border-b border-slate-100 dark:border-slate-700/50 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors ${activeChatUserId === conv.user_id ? 'bg-indigo-50 dark:bg-indigo-900/20' : ''}`}
               >
-                <div className="h-12 w-12 rounded-full bg-indigo-100 dark:bg-indigo-900/50 flex items-center justify-center text-indigo-600 dark:text-indigo-400 shrink-0">
-                  <UserIcon className="w-6 h-6" />
+                <div className={`h-12 w-12 rounded-full overflow-hidden flex items-center justify-center text-sm font-bold shrink-0 border border-slate-200 dark:border-slate-700 shadow-sm ${conv.role === 'investor' ? 'bg-emerald-100 text-emerald-600' : 'bg-indigo-100 text-indigo-600'}`}>
+                  <img 
+                    src={conv.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(conv.name || 'User')}&background=${conv.role === 'investor' ? '10b981' : '4f46e5'}&color=fff&bold=true`} 
+                    alt="Avatar" 
+                    className="w-full h-full object-cover" 
+                  />
                 </div>
                 <div className="ml-3 flex-1 overflow-hidden">
                   <h4 className="text-sm font-bold text-slate-900 dark:text-white truncate">{conv.name || 'Unknown User'}</h4>
@@ -324,8 +350,12 @@ const Messages = () => {
                 <ArrowLeft className="w-5 h-5" />
               </button>
               <div className="flex items-center">
-                <div className="h-10 w-10 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-600 shrink-0">
-                  <UserIcon className="w-5 h-5" />
+                <div className="h-10 w-10 rounded-full overflow-hidden bg-indigo-100 flex items-center justify-center text-indigo-600 shrink-0 border border-slate-200 dark:border-slate-700 shadow-sm">
+                  <img 
+                    src={activeChatProfile?.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(activeChatProfile?.name || 'User')}&background=4f46e5&color=fff&bold=true`} 
+                    alt="Avatar" 
+                    className="w-full h-full object-cover" 
+                  />
                 </div>
                 <div className="ml-3">
                   <h3 className="font-bold text-slate-900 dark:text-white">
@@ -352,14 +382,28 @@ const Messages = () => {
               ) : (
                 messages.map((msg, index) => {
                   const isMe = msg.sender_id === session?.user?.id;
+                  const profileToUse = isMe ? currentUserProfile : activeChatProfile;
+                  
                   return (
-                    <div key={msg.id} className={`flex flex-col ${isMe ? 'items-end' : 'items-start'} animate-in slide-in-from-bottom-2 duration-300`}>
-                      <div className={`max-w-[75%] rounded-2xl px-5 py-3 ${isMe ? 'bg-indigo-600 text-white rounded-tr-sm' : 'bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white rounded-tl-sm'}`}>
-                        <p className="text-sm whitespace-pre-wrap break-words">{msg.content}</p>
+                    <div key={msg.id} className={`flex items-end space-x-2 ${isMe ? 'flex-row-reverse space-x-reverse' : 'flex-row'} animate-in slide-in-from-bottom-2 duration-300`}>
+                      {/* Avatar */}
+                      <div className={`h-9 w-9 rounded-full overflow-hidden flex items-center justify-center text-xs font-bold shrink-0 border-2 border-white dark:border-slate-800 shadow-sm ${isMe ? 'bg-indigo-600' : 'bg-emerald-500'}`}>
+                        <img 
+                          src={profileToUse?.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(profileToUse?.name || 'U')}&background=${isMe ? '4f46e5' : '10b981'}&color=fff&bold=true`} 
+                          alt="Avatar" 
+                          className="w-full h-full object-cover" 
+                        />
                       </div>
-                      <span className="text-[10px] text-slate-400 mt-1 px-1">
-                        {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                      </span>
+
+                      {/* Message Bubble */}
+                      <div className={`flex flex-col ${isMe ? 'items-end' : 'items-start'} max-w-[75%]`}>
+                        <div className={`rounded-2xl px-4 py-2.5 ${isMe ? 'bg-indigo-600 text-white rounded-tr-sm shadow-md shadow-indigo-600/10' : 'bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white rounded-tl-sm shadow-sm'}`}>
+                          <p className="text-sm whitespace-pre-wrap break-words leading-relaxed">{msg.content}</p>
+                        </div>
+                        <span className="text-[9px] text-slate-400 mt-1 px-1">
+                          {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                      </div>
                     </div>
                   );
                 })
@@ -380,9 +424,9 @@ const Messages = () => {
                 <button 
                   type="submit" 
                   disabled={!newMessage.trim()}
-                  className="bg-indigo-600 text-white pb-3 pt-3 px-5 rounded-full hover:bg-indigo-700 disabled:opacity-50 disabled:hover:bg-indigo-600 transition-all flex items-center justify-center shadow-lg shadow-indigo-600/30 w-12 h-12"
+                  className="bg-indigo-600 text-white rounded-full hover:bg-indigo-700 disabled:opacity-50 disabled:hover:bg-indigo-600 transition-all flex items-center justify-center shadow-lg shadow-indigo-600/30 w-16 h-16 group/send shrink-0"
                 >
-                  <Send className="w-5 h-5 ml-1" />
+                  <SendHorizontal className="w-8 h-8 text-white group-hover/send:translate-x-1.5 transition-transform" strokeWidth={3} />
                 </button>
               </form>
             </div>

@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { Link } from 'react-router-dom';
-import { PlusCircle, Eye, Handshake, Users, TrendingUp, Presentation, LayoutDashboard, MessageSquare, Folder, Settings, LogOut, Menu, X, Briefcase, Bell, Search, ChevronLeft, ChevronRight } from 'lucide-react';
+import { PlusCircle, Eye, Handshake, Users, TrendingUp, Presentation, LayoutDashboard, MessageSquare, Folder, Settings, LogOut, Menu, X, Briefcase, Bell, Search, ChevronLeft, ChevronRight, Play } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area, LabelList } from 'recharts';
 import { useNavigate } from 'react-router-dom';
 
@@ -78,22 +78,37 @@ const Dashboard = () => {
         
         const totalViews = (pitches || []).reduce((acc, p) => acc + (p.views_count || 0), 0);
         const pitchIds = (pitches || []).map(p => p.id);
-        let interestCount = 0;
-        let activities = [];
-
+        
         if (pitchIds.length > 0) {
-          const { data: interestData, count } = await supabase
+          // 1. Get ALL interests for my pitches
+          const { data: interestData, count: interestCount } = await supabase
             .from('interests')
-            .select('*, profiles:investor_id(name)', { count: 'exact' })
-            .in('pitch_id', pitchIds)
-            .order('created_at', { ascending: false });
+            .select('*', { count: 'exact' })
+            .in('pitch_id', pitchIds);
           
-          interestCount = count || 0;
-          activities = (interestData || []).slice(0, 3).map(item => ({
+          // 2. Calculate interests from last 7 days
+          const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+          const newInterestsCount = (interestData || []).filter(i => i.created_at >= sevenDaysAgo).length;
+          
+          setMetrics(prev => ({
+            ...prev,
+            interests: interestCount || 0,
+            newInterests: newInterestsCount
+          }));
+
+          // 3. Get recent interest details for activity feed
+          const { data: recentInterests } = await supabase
+            .from('interests')
+            .select('*, pitches(title)')
+            .in('pitch_id', pitchIds)
+            .order('created_at', { ascending: false })
+            .limit(5);
+
+          const interestActivities = (recentInterests || []).map(item => ({
             id: item.id,
             type: 'interest',
             title: 'New investor interest',
-            desc: `${item.profiles?.name || 'An investor'} showed interest in your pitch.`,
+            desc: `An investor showed interest in your pitch "${item.pitches?.title || 'Startup'}"`,
             time: item.created_at
           }));
 
@@ -108,7 +123,6 @@ const Dashboard = () => {
           setMetrics(prev => ({
             ...prev,
             views: reliableViews,
-            interests: interestCount,
             pitches: pitches?.length || 0,
           }));
 
@@ -120,7 +134,7 @@ const Dashboard = () => {
             time: v.viewed_at
           }));
 
-          const combinedActivities = [...activities, ...viewActivities]
+          const combinedActivities = [...interestActivities, ...viewActivities]
             .sort((a, b) => new Date(b.time) - new Date(a.time))
             .slice(0, 5);
 
@@ -139,20 +153,14 @@ const Dashboard = () => {
           .select('*', { count: 'exact', head: true })
           .eq('investor_id', user.id);
 
-        // 1. Calculate platform total views explicitly
-        let totalPlatformViews = (globalPitches || []).reduce((sum, p) => sum + (Number(p.views_count) || 0), 0);
+        // 1. Calculate platform total views using both views_count and pitch_views history
+        let totalPlatformViews = (processedPitches || []).reduce((sum, p) => sum + (p.views || 0), 0);
         
         // 2. Count messages
         const { count: messageCount } = await supabase
           .from('direct_messages')
           .select('*', { count: 'exact', head: true })
           .or(`sender_id.eq.${user.id},receiver_id.eq.${user.id}`);
-
-        // FALLBACK: If everything is 0, provide sample data for the submission/demo
-        const hasNoData = totalPlatformViews === 0;
-        if (hasNoData && globalPitches && globalPitches.length > 0) {
-           totalPlatformViews = 1240; // Sample total views
-        }
 
         setMetrics({
           views: totalPlatformViews,
@@ -176,10 +184,10 @@ const Dashboard = () => {
           time: item.created_at
         }));
 
-        if (activities.length === 0 && hasNoData) {
+        if (activities.length === 0) {
           activities = [{
-            id: 'sample-1',
-            type: 'interest',
+            id: 'welcome-1',
+            type: 'info',
             title: 'Welcome to InvestHub',
             desc: 'Start exploring pitches to see your activity here.',
             time: new Date().toISOString()
@@ -189,16 +197,12 @@ const Dashboard = () => {
 
         setMyPitches(processedPitches);
         
-        // Investor Chart: Top 6 Videos by Views
+        // Investor Chart: Top 6 Videos by Views (using .views from processedPitches)
         if (processedPitches && processedPitches.length > 0) {
-          let sortedPitches = [...processedPitches].sort((a, b) => (Number(b.views_count) || 0) - (Number(a.views_count) || 0));
+          let sortedPitches = [...processedPitches].sort((a, b) => (b.views || 0) - (a.views || 0));
 
-          const trendData = sortedPitches.slice(0, 6).map((pitch, idx) => {
-            let views = Number(pitch.views_count) || 0;
-            // Add sample views for demo if DB is empty
-            if (totalPlatformViews > 0 && views === 0) {
-              views = [450, 320, 210, 150, 80, 30][idx] || 10;
-            }
+          const trendData = sortedPitches.slice(0, 6).map((pitch) => {
+            const views = pitch.views || 0;
             return {
               name: pitch.title ? (pitch.title.length > 10 ? pitch.title.substring(0, 10) + '...' : pitch.title) : 'Startup',
               views: views
@@ -218,24 +222,27 @@ const Dashboard = () => {
   };
 
   const processChartData = (viewHistory) => {
-    const last7Days = [...Array(7)].map((_, i) => {
-      const d = new Date();
-      d.setDate(d.getDate() - i);
-      return d.toISOString().split('T')[0];
-    }).reverse();
+    const data = [];
+    for (let i = 6; i >= 0; i--) {
+      const date = new Date();
+      date.setHours(0, 0, 0, 0);
+      date.setDate(date.getDate() - i);
+      
+      const dateStr = date.toLocaleDateString('en-CA'); // YYYY-MM-DD
+      const dayName = date.toLocaleDateString('en-US', { weekday: 'short' });
+      
+      const count = (viewHistory || []).filter(v => {
+        const vDate = new Date(v.viewed_at).toLocaleDateString('en-CA');
+        return vDate === dateStr;
+      }).length;
 
-    const counts = viewHistory.reduce((acc, v) => {
-      const date = v.viewed_at.split('T')[0];
-      acc[date] = (acc[date] || 0) + 1;
-      return acc;
-    }, {});
-
-    const formattedData = last7Days.map(date => ({
-      date: new Date(date).toLocaleDateString('en-US', { weekday: 'short' }),
-      views: counts[date] || 0
-    }));
-
-    setChartData(formattedData);
+      data.push({
+        date: dayName,
+        views: count,
+        fullDate: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+      });
+    }
+    setChartData(data);
   };
 
   // REAL-TIME SUBSCRIPTION
@@ -243,10 +250,6 @@ const Dashboard = () => {
     let channel;
 
     const setupRealtime = async () => {
-      const { data: { session: authSession } } = await supabase.auth.getSession();
-      if (!authSession) return;
-      const user = authSession.user;
-      
       channel = supabase
         .channel('dashboard-updates')
         .on(
@@ -263,6 +266,13 @@ const Dashboard = () => {
           'postgres_changes',
           { event: 'UPDATE', schema: 'public', table: 'pitches' },
           () => fetchProfileData()
+        )
+        .on(
+          'postgres_changes',
+          { event: 'INSERT', schema: 'public', table: 'pitch_views' },
+          () => {
+            fetchProfileData();
+          }
         )
         .subscribe();
     };
@@ -306,76 +316,76 @@ const Dashboard = () => {
   }
 
   return (
-    <div className="max-w-6xl mx-auto space-y-10 animate-fade-in-up pb-10">
+    <div className="max-w-6xl mx-auto space-y-6 md:space-y-10 animate-fade-in-up pb-10">
       {/* Page Header */}
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
-        <div>
-          <div className="flex items-center space-x-3 mb-2">
-            <h1 className="text-3xl md:text-4xl font-bold text-slate-900 dark:text-white tracking-tight">
+        <div className="px-1">
+          <div className="flex flex-wrap items-center gap-3 mb-2">
+            <h1 className="text-2xl md:text-4xl font-bold text-slate-900 dark:text-white tracking-tight">
               {userRole === 'product_owner' ? 'Dashboard Overview' : 'Investor Portal'}
             </h1>
             {userRole === 'product_owner' && (
-              <span className="px-4 py-1 bg-indigo-600 text-white text-[10px] font-black rounded-full shadow-lg shadow-indigo-600/30 animate-pulse uppercase tracking-widest">
+              <span className="px-3 py-1 bg-indigo-600 text-white text-[9px] md:text-[10px] font-black rounded-full shadow-lg shadow-indigo-600/30 animate-pulse uppercase tracking-widest">
                 LEVEL {calculateLevel(metrics.views)}
               </span>
             )}
           </div>
-          <p className="text-slate-500 dark:text-slate-400 font-medium">
+          <p className="text-sm md:text-base text-slate-500 dark:text-slate-400 font-medium">
             {userRole === 'product_owner' ? 'Monitoring your startup growth and investor relations.' : 'Explore startups and manage your investment interests.'}
           </p>
         </div>
         {userRole === 'product_owner' && (
-          <Link to="/create-pitch" className="flex items-center justify-center space-x-2 bg-indigo-600 hover:bg-indigo-700 text-white px-8 py-4 rounded-2xl font-bold transition-all shadow-xl shadow-indigo-600/30 hover:scale-[1.02] active:scale-95">
+          <Link to="/create-pitch" className="flex items-center justify-center space-x-2 bg-indigo-600 hover:bg-indigo-700 text-white px-6 md:px-8 py-3 md:py-4 rounded-2xl font-bold transition-all shadow-xl shadow-indigo-600/30 hover:scale-[1.02] active:scale-95 text-sm md:text-base">
             <PlusCircle className="w-5 h-5" />
             <span>Create New Pitch</span>
           </Link>
         )}
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="bg-white dark:bg-slate-800 p-6 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-700/50">
-          <div className="flex justify-between items-start mb-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 md:gap-6">
+        <div className="bg-white dark:bg-slate-800 p-4 md:p-6 rounded-2xl md:rounded-3xl shadow-sm border border-slate-100 dark:border-slate-700/50">
+          <div className="flex justify-between items-start mb-2 md:mb-4">
             <div>
-              <p className="text-slate-500 dark:text-slate-400 text-sm font-medium">
+              <p className="text-slate-500 dark:text-slate-400 text-[10px] md:text-sm font-medium">
                 {userRole === 'product_owner' ? 'Total Views' : 'Platform Video Views'}
               </p>
-              <h3 className="text-3xl font-bold text-slate-900 dark:text-white mt-1">{metrics.views}</h3>
+              <h3 className="text-xl md:text-3xl font-bold text-slate-900 dark:text-white mt-1">{metrics.views}</h3>
             </div>
-            <div className="p-3 bg-blue-50 dark:bg-blue-900/20 text-blue-600 rounded-xl">
-              {userRole === 'product_owner' ? <Eye className="w-6 h-6" /> : <TrendingUp className="w-6 h-6" />}
+            <div className="p-2 md:p-3 bg-blue-50 dark:bg-blue-900/20 text-blue-600 rounded-xl">
+              {userRole === 'product_owner' ? <Eye className="w-4 h-4 md:w-6 h-6" /> : <TrendingUp className="w-4 h-4 md:w-6 h-6" />}
             </div>
           </div>
-          <p className="text-sm text-green-600 font-medium">{userRole === 'product_owner' ? '+15% from last month' : 'New startups every day'}</p>
+          <p className="text-[10px] md:text-sm text-green-600 font-medium">{userRole === 'product_owner' ? '+15% from last month' : 'New startups every day'}</p>
         </div>
         
-        <div className="bg-white dark:bg-slate-800 p-6 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-700/50">
-          <div className="flex justify-between items-start mb-4">
+        <div className="bg-white dark:bg-slate-800 p-4 md:p-6 rounded-2xl md:rounded-3xl shadow-sm border border-slate-100 dark:border-slate-700/50">
+          <div className="flex justify-between items-start mb-2 md:mb-4">
             <div>
-              <p className="text-slate-500 dark:text-slate-400 text-sm font-medium">
+              <p className="text-slate-500 dark:text-slate-400 text-[10px] md:text-sm font-medium">
                 {userRole === 'product_owner' ? 'Active Interests' : 'Interests Expressed'}
               </p>
-              <h3 className="text-3xl font-bold text-slate-900 dark:text-white mt-1">{metrics.interests}</h3>
+              <h3 className="text-xl md:text-3xl font-bold text-slate-900 dark:text-white mt-1">{metrics.interests}</h3>
             </div>
-            <div className="p-3 bg-purple-50 dark:bg-purple-900/20 text-purple-600 rounded-xl">
-              <Handshake className="w-6 h-6" />
+            <div className="p-2 md:p-3 bg-purple-50 dark:bg-purple-900/20 text-purple-600 rounded-xl">
+              <Handshake className="w-4 h-4 md:w-6 h-6" />
             </div>
           </div>
-          <p className="text-sm text-green-600 font-medium">{userRole === 'product_owner' ? '+5 new this week' : 'Active follow-ups'}</p>
+          <p className="text-[10px] md:text-sm text-green-600 font-medium">{userRole === 'product_owner' ? `+${metrics.newInterests || 0} new this week` : 'Active follow-ups'}</p>
         </div>
 
-        <div className="bg-white dark:bg-slate-800 p-6 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-700/50">
-          <div className="flex justify-between items-start mb-4">
+        <div className="bg-white dark:bg-slate-800 p-4 md:p-6 rounded-2xl md:rounded-3xl shadow-sm border border-slate-100 dark:border-slate-700/50 sm:col-span-2 md:col-span-1">
+          <div className="flex justify-between items-start mb-2 md:mb-4">
             <div>
-              <p className="text-slate-500 dark:text-slate-400 text-sm font-medium">
+              <p className="text-slate-500 dark:text-slate-400 text-[10px] md:text-sm font-medium">
                 {userRole === 'product_owner' ? 'Your Pitches' : 'Total Messages'}
               </p>
-              <h3 className="text-3xl font-bold text-slate-900 dark:text-white mt-1">{metrics.pitches}</h3>
+              <h3 className="text-xl md:text-3xl font-bold text-slate-900 dark:text-white mt-1">{metrics.pitches}</h3>
             </div>
-            <div className="p-3 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 rounded-xl">
-              {userRole === 'product_owner' ? <Presentation className="w-6 h-6" /> : <MessageSquare className="w-6 h-6" />}
+            <div className="p-2 md:p-3 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 rounded-xl">
+              {userRole === 'product_owner' ? <Presentation className="w-4 h-4 md:w-6 h-6" /> : <MessageSquare className="w-4 h-4 md:w-6 h-6" />}
             </div>
           </div>
-          <p className="text-sm text-slate-500">Active conversation hub</p>
+          <p className="text-[10px] md:text-sm text-slate-500">Active conversation hub</p>
         </div>
       </div>
 
@@ -424,15 +434,15 @@ const Dashboard = () => {
                   <BarChart data={chartData}>
                     <defs>
                       <linearGradient id="colorInvestor" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#10b981" stopOpacity={0.8}/>
-                        <stop offset="95%" stopColor="#10b981" stopOpacity={0.1}/>
+                        <stop offset="5%" stopColor="#4f46e5" stopOpacity={0.8}/>
+                        <stop offset="95%" stopColor="#4f46e5" stopOpacity={0.1}/>
                       </linearGradient>
                     </defs>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#334155" opacity={0.1} />
                     <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill: '#64748b', fontSize: 10}} interval={0} angle={-15} textAnchor="end" height={60} />
                     <YAxis axisLine={false} tickLine={false} tick={{fill: '#64748b', fontSize: 12}} allowDecimals={false} />
                     <Tooltip 
-                      cursor={{fill: 'rgba(16, 185, 129, 0.05)'}} 
+                      cursor={{fill: 'rgba(79, 70, 229, 0.05)'}} 
                       contentStyle={{
                         borderRadius: '16px', 
                         border: '1px solid rgba(255, 255, 255, 0.1)', 
@@ -446,7 +456,7 @@ const Dashboard = () => {
                       formatter={(value) => [`${value} Views`, 'Video Views']}
                     />
                     <Bar dataKey="views" fill="url(#colorInvestor)" radius={[6, 6, 0, 0]}>
-                      <LabelList dataKey="views" position="top" fill="#10b981" fontSize={11} fontWeight="bold" offset={10} />
+                      <LabelList dataKey="views" position="top" fill="#4f46e5" fontSize={11} fontWeight="bold" offset={10} />
                     </Bar>
                   </BarChart>
                 </ResponsiveContainer>
@@ -488,24 +498,31 @@ const Dashboard = () => {
       
       {myPitches.length > 0 && (
         <div className="bg-white dark:bg-slate-800 p-6 md:p-8 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-700/50">
-           <h3 className="text-xl font-bold mb-6 text-slate-900 dark:text-white">
-             {userRole === 'product_owner' ? 'Your Pitches' : 'Latest Opportunities'}
-           </h3>
+           <div className="flex items-center space-x-3 mb-6">
+              <div className="p-2 bg-indigo-50 dark:bg-indigo-900/20 rounded-xl">
+                <Play className="w-5 h-5 text-indigo-600 fill-current" />
+              </div>
+              <h3 className="text-xl font-bold text-slate-900 dark:text-white">
+                Pitches
+              </h3>
+           </div>
            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {myPitches.map((pitch) => (
                  <Link to={`/pitches`} key={pitch.id} className="border border-slate-200 dark:border-slate-700 rounded-2xl p-5 hover:shadow-lg transition-all block">
-                    <h4 className="font-bold text-lg mb-2 text-slate-900 dark:text-white">{pitch.title}</h4>
+                    <h4 className="font-bold text-lg mb-2 text-slate-900 dark:text-white truncate" title={pitch.title}>{pitch.title}</h4>
                     <p className="text-sm text-slate-500 mb-4 line-clamp-2">{pitch.description}</p>
-                    <div className="flex justify-between items-center">
-                       <span className="text-sm font-medium bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 px-3 py-1 rounded-full">{pitch.category || 'Startup'}</span>
-                       <div className="flex items-center space-x-3">
-                         <span className="text-xs font-semibold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20 px-2 py-1 rounded-full flex items-center space-x-1">
-                           <Eye className="w-3 h-3" />
-                           <span>{pitch.views_count || 0}</span>
-                         </span>
-                         <span className="text-sm font-semibold text-slate-700 dark:text-slate-300">${pitch.funding_goal?.toLocaleString()}</span>
-                       </div>
-                    </div>
+                     <div className="flex flex-wrap items-center justify-between gap-2 mt-4 pt-4 border-t border-slate-50 dark:border-slate-700/30">
+                        <span className="text-xs font-medium bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 px-2 py-0.5 rounded-full truncate max-w-[100px]">{pitch.category || 'Startup'}</span>
+                        <div className="flex items-center space-x-2">
+                          <span className="text-[10px] font-semibold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20 px-1.5 py-0.5 rounded-full flex items-center space-x-1">
+                            <Eye className="w-3 h-3" />
+                            <span>{pitch.views_count || 0}</span>
+                          </span>
+                          <span className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                             ${pitch.funding_goal ? (pitch.funding_goal >= 1000000 ? (pitch.funding_goal/1000000).toFixed(1) + 'M' : pitch.funding_goal.toLocaleString()) : '0'}
+                          </span>
+                        </div>
+                     </div>
                  </Link>
               ))}
            </div>

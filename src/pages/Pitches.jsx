@@ -44,11 +44,17 @@ const Pitches = () => {
   }, [pitches]);
 
   const getCurrentUser = async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (user) {
-      setCurrentUserId(user.id);
-      const { data: userData } = await supabase.from('users').select('role').eq('id', user.id).single();
-      if (userData) setUserRole(userData.role);
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session?.user) {
+      setCurrentUserId(session.user.id);
+      
+      // Try DB first
+      const { data: userData } = await supabase.from('users').select('role').eq('id', session.user.id).single();
+      
+      // Fallback to metadata
+      const role = userData?.role || session.user.user_metadata?.role || 'investor'; 
+      console.log("Pitches: Detected User Role:", role);
+      setUserRole(role.toLowerCase());
     }
   };
 
@@ -498,15 +504,15 @@ const Pitches = () => {
               </div>
             </div>
 
-            <div className="p-8 overflow-y-auto">
-              <div className="grid grid-cols-2 gap-6 mb-8">
+            <div className="p-5 md:p-8 overflow-y-auto">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 md:gap-6 mb-8">
                 <div className="flex items-center space-x-3 text-slate-600 dark:text-slate-400">
                   <div className="p-2 bg-slate-100 dark:bg-slate-700/50 rounded-lg">
                     <Tag className="w-5 h-5 text-indigo-500" />
                   </div>
                   <div>
-                    <p className="text-xs uppercase tracking-wider font-semibold opacity-60">Category</p>
-                    <p className="font-medium text-slate-900 dark:text-white">{selectedPitch.category || 'Tech'}</p>
+                    <p className="text-[10px] md:text-xs uppercase tracking-wider font-semibold opacity-60">Category</p>
+                    <p className="text-sm md:text-base font-medium text-slate-900 dark:text-white">{selectedPitch.category || 'Tech'}</p>
                   </div>
                 </div>
                 
@@ -515,8 +521,8 @@ const Pitches = () => {
                     <DollarSign className="w-5 h-5 text-emerald-500" />
                   </div>
                   <div>
-                    <p className="text-xs uppercase tracking-wider font-semibold opacity-60">Funding Goal</p>
-                    <p className="font-medium text-slate-900 dark:text-white">${selectedPitch.funding_goal?.toLocaleString()}</p>
+                    <p className="text-[10px] md:text-xs uppercase tracking-wider font-semibold opacity-60">Funding Goal</p>
+                    <p className="text-sm md:text-base font-medium text-slate-900 dark:text-white">${selectedPitch.funding_goal?.toLocaleString()}</p>
                   </div>
                 </div>
 
@@ -525,9 +531,9 @@ const Pitches = () => {
                     <Calendar className="w-5 h-5 text-blue-500" />
                   </div>
                   <div>
-                    <p className="text-xs uppercase tracking-wider font-semibold opacity-60">Posted On</p>
-                    <p className="font-medium text-slate-900 dark:text-white">
-                      {new Date(selectedPitch.created_at).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })}
+                    <p className="text-[10px] md:text-xs uppercase tracking-wider font-semibold opacity-60">Posted On</p>
+                    <p className="text-sm md:text-base font-medium text-slate-900 dark:text-white">
+                      {new Date(selectedPitch.created_at).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}
                     </p>
                   </div>
                 </div>
@@ -537,8 +543,8 @@ const Pitches = () => {
                     <User className="w-5 h-5 text-orange-500" />
                   </div>
                   <div>
-                    <p className="text-xs uppercase tracking-wider font-semibold opacity-60">Founder</p>
-                    <p className="font-medium text-slate-900 dark:text-white truncate max-w-[120px]">
+                    <p className="text-[10px] md:text-xs uppercase tracking-wider font-semibold opacity-60">Founder</p>
+                    <p className="text-sm md:text-base font-medium text-slate-900 dark:text-white truncate max-w-[120px]">
                       {selectedPitch.profiles?.name || 'Anonymous'}
                     </p>
                   </div>
@@ -546,67 +552,77 @@ const Pitches = () => {
               </div>
 
               <div className="space-y-4 mb-8">
-                <h4 className="text-lg font-bold text-slate-900 dark:text-white">Founder Details</h4>
-                <div className="bg-slate-50 dark:bg-slate-900/50 p-4 rounded-2xl flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-semibold text-slate-700 dark:text-slate-300">{selectedPitch.profiles?.name}</p>
-                    <p className="text-xs text-slate-500">{selectedPitch.profiles?.email}</p>
+                <h4 className="text-base md:text-lg font-bold text-slate-900 dark:text-white">Founder Details</h4>
+                <div className="bg-slate-50 dark:bg-slate-900/50 p-3 md:p-4 rounded-2xl flex items-center justify-between">
+                  <div className="truncate mr-2">
+                    <p className="text-sm font-semibold text-slate-700 dark:text-slate-300 truncate">{selectedPitch.profiles?.name}</p>
+                    <p className="text-[10px] md:text-xs text-slate-500 truncate">{selectedPitch.profiles?.email}</p>
                   </div>
                   <Link 
                     to={`/messages?user=${selectedPitch.owner_id}`}
-                    className="p-2 bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 rounded-lg hover:bg-indigo-200 transition-colors flex items-center space-x-1"
+                    className="p-2 bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 rounded-lg hover:bg-indigo-200 transition-colors flex items-center space-x-1 shrink-0"
                   >
                     <MessageSquare className="w-4 h-4" />
-                    <span>Message</span>
+                    <span className="text-xs font-bold">Message</span>
                   </Link>
                 </div>
               </div>
 
               <div className="space-y-4">
-                <h4 className="text-lg font-bold text-slate-900 dark:text-white">About the Startup</h4>
-                <p className="text-slate-600 dark:text-slate-400 leading-relaxed">
+                <h4 className="text-base md:text-lg font-bold text-slate-900 dark:text-white">About the Startup</h4>
+                <p className="text-sm md:text-base text-slate-600 dark:text-slate-400 leading-relaxed">
                   {selectedPitch.description}
                 </p>
               </div>
 
-              {/* Interest Form for Investors */}
-              {userRole === 'investor' && currentUserId !== selectedPitch.owner_id && (
-                <div className="mt-8 p-6 bg-indigo-50 dark:bg-indigo-900/20 rounded-3xl border border-indigo-100 dark:border-indigo-800/50">
-                  <h4 className="text-lg font-bold text-slate-900 dark:text-white mb-2">Interested in Investing?</h4>
-                  <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">Send a message to the founder to start a conversation.</p>
+              {/* Interest Form Area */}
+              {currentUserId === selectedPitch.owner_id ? (
+                <div className="mt-8 p-4 bg-slate-50 dark:bg-slate-900/30 rounded-2xl border border-slate-100 dark:border-slate-800 text-center">
+                   <p className="text-xs text-slate-500 italic font-medium">This is your own pitch. You can manage it from the dashboard.</p>
+                </div>
+              ) : (
+                <div className="mt-8 p-4 md:p-6 bg-indigo-50 dark:bg-indigo-900/20 rounded-2xl md:rounded-3xl border border-indigo-100 dark:border-indigo-800/50">
+                  <div className="flex items-center space-x-2 mb-3">
+                    <Handshake className="w-5 h-5 text-indigo-600" />
+                    <h4 className="text-base md:text-lg font-bold text-slate-900 dark:text-white">Interested in Investing?</h4>
+                  </div>
+                  <p className="text-xs md:text-sm text-slate-500 dark:text-slate-400 mb-4">Send a message to the founder to start a conversation about this opportunity.</p>
                   <textarea 
                     value={interestMessage}
                     onChange={(e) => setInterestMessage(e.target.value)}
                     placeholder="Tell the founder why you're interested..."
-                    className="w-full p-4 rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus:ring-2 focus:ring-indigo-500 transition-all text-sm mb-4"
+                    className="w-full p-3 md:p-4 rounded-xl md:rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus:ring-2 focus:ring-indigo-500 transition-all text-sm mb-4 outline-none"
                     rows="3"
                   ></textarea>
                   <button 
                     onClick={handleInterest}
                     disabled={isSubmittingInterest || !interestMessage.trim()}
-                    className="w-full py-3 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 disabled:opacity-50 disabled:hover:scale-100 transition-all active:scale-95 flex items-center justify-center space-x-2 shadow-lg shadow-indigo-600/20"
+                    className="w-full py-3 md:py-4 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 disabled:opacity-50 disabled:hover:scale-100 transition-all active:scale-95 flex items-center justify-center space-x-2 shadow-lg shadow-indigo-600/20"
                   >
                     {isSubmittingInterest ? <Loader2 className="w-5 h-5 animate-spin" /> : <Handshake className="w-5 h-5" />}
                     <span>Submit Interest</span>
                   </button>
+                  {userRole === 'product_owner' && (
+                    <p className="mt-3 text-[10px] text-center text-indigo-400 italic">Note: You are currently signed in as a Product Owner.</p>
+                  )}
                 </div>
               )}
 
-              <div className="mt-8 pt-8 border-t border-slate-100 dark:border-slate-700/50 flex space-x-4">
+              <div className="mt-8 pt-6 md:pt-8 border-t border-slate-100 dark:border-slate-700/50 flex flex-col sm:flex-row gap-3 md:gap-4">
                 <button 
                   onClick={() => {
                     setShowDetails(false);
                     incrementViewCount(selectedPitch.id);
                     setTimeout(() => setShowVideo(true), 100);
                   }}
-                  className="flex-1 py-4 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 hover:scale-[1.02] transition-all flex items-center justify-center space-x-2 shadow-lg shadow-indigo-600/30"
+                  className="flex-1 py-3 md:py-4 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 hover:scale-[1.01] transition-all flex items-center justify-center space-x-2 shadow-lg shadow-indigo-600/30"
                 >
                   <Play className="w-5 h-5 fill-current" />
                   <span>Watch Pitch</span>
                 </button>
                 <Link 
                   to={`/messages?user=${selectedPitch.owner_id}`}
-                  className="flex-1 py-4 bg-slate-100 dark:bg-slate-700 text-slate-900 dark:text-white rounded-xl font-bold hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors flex items-center justify-center space-x-2"
+                  className="flex-1 py-3 md:py-4 bg-slate-100 dark:bg-slate-700 text-slate-900 dark:text-white rounded-xl font-bold hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors flex items-center justify-center space-x-2"
                 >
                   <MessageSquare className="w-5 h-5" />
                   <span>Message Founder</span>

@@ -4,7 +4,7 @@ import { supabase } from '../lib/supabase';
 import { 
   LayoutDashboard, 
   MessageSquare, 
-  Folder, 
+  Video, 
   LogOut, 
   Briefcase, 
   ChevronLeft, 
@@ -23,14 +23,14 @@ const Sidebar = ({ isCollapsed, setIsCollapsed, userRole, profile, activePage })
 
   const navLinks = [
     { name: 'Overview', icon: LayoutDashboard, path: '/dashboard' },
-    { name: 'My Pitches', icon: Folder, path: '/pitches' },
+    { name: 'Pitches', icon: Video, path: '/pitches' },
     { name: 'Messages', icon: MessageSquare, path: '/messages' },
     ...(userRole === 'investor' ? [{ name: 'History', icon: History, path: '/history' }] : []),
     { name: 'Profile', icon: UserCircle, path: '/profile' },
   ];
 
   return (
-    <aside className={`fixed lg:static inset-y-0 left-0 ${isCollapsed ? 'lg:w-20' : 'lg:w-72'} w-72 bg-white dark:bg-slate-800 border-r border-slate-200 dark:border-slate-700/50 z-50 transform transition-all duration-300 ease-in-out lg:translate-x-0 h-full flex flex-col p-4`}>
+    <aside className={`fixed lg:static inset-y-0 left-0 ${isCollapsed ? 'w-20' : 'w-72'} bg-white dark:bg-slate-800 border-r border-slate-200 dark:border-slate-700/50 z-50 transition-all duration-500 ease-in-out h-full flex flex-col p-4`}>
       <div className="flex items-center h-10 mb-10 px-2 overflow-hidden">
         <div className={`flex items-center shrink-0 transition-all duration-300 ${isCollapsed ? 'w-full justify-center' : 'w-auto space-x-3'}`}>
           <div className="bg-indigo-600 p-2.5 rounded-xl shadow-lg shadow-indigo-600/20 shrink-0">
@@ -67,7 +67,7 @@ const Sidebar = ({ isCollapsed, setIsCollapsed, userRole, profile, activePage })
       <div className="mt-auto pt-6 border-t border-slate-100 dark:border-slate-700/50 space-y-4">
         <button 
           onClick={() => setIsCollapsed(!isCollapsed)}
-          className="hidden lg:flex items-center h-11 w-full hover:bg-slate-100 dark:hover:bg-slate-700/50 rounded-xl text-slate-500 dark:text-slate-400 transition-colors duration-200 group relative px-3"
+          className="flex items-center h-11 w-full hover:bg-slate-100 dark:hover:bg-slate-700/50 rounded-xl text-slate-500 dark:text-slate-400 transition-colors duration-200 group relative px-3"
         >
           <div className={`flex items-center justify-center shrink-0 transition-all duration-300 ${isCollapsed ? 'w-full' : 'w-7'}`}>
             {isCollapsed ? <ChevronRight className="w-6 h-6" /> : <ChevronLeft className="w-6 h-6" />}
@@ -78,9 +78,13 @@ const Sidebar = ({ isCollapsed, setIsCollapsed, userRole, profile, activePage })
         </button>
 
         <div className={`bg-slate-50 dark:bg-slate-900/50 rounded-2xl transition-all duration-300 ${isCollapsed ? 'p-2' : 'p-4'}`}>
-           <div className={`flex items-center transition-all duration-300 ${isCollapsed ? 'justify-center' : 'space-x-3'} mb-3`}>
-              <div className="h-10 w-10 rounded-full bg-indigo-100 dark:bg-indigo-900/30 flex items-center justify-center text-indigo-600 font-bold shrink-0">
-                {profile?.name?.charAt(0) || 'U'}
+            <div className={`flex items-center transition-all duration-300 ${isCollapsed ? 'justify-center' : 'space-x-3'} mb-3`}>
+              <div className="h-10 w-10 rounded-full overflow-hidden bg-indigo-100 dark:bg-indigo-900/30 flex items-center justify-center text-indigo-600 font-bold shrink-0">
+                {profile?.avatar_url ? (
+                  <img src={profile.avatar_url} alt="Profile" className="w-full h-full object-cover" />
+                ) : (
+                  profile?.name?.charAt(0) || 'U'
+                )}
               </div>
               <div className={`overflow-hidden transition-all duration-300 ${isCollapsed ? 'w-0 opacity-0' : 'w-auto opacity-100'}`}>
                 <p className="text-sm font-bold text-slate-900 dark:text-white truncate">{profile?.name || 'User'}</p>
